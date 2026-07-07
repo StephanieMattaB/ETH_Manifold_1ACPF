@@ -11,9 +11,9 @@
 %	MATPOWER 5.1 available at http://www.pserc.cornell.edu/matpower/
 %
 
-clear all 
+%clear all 
 close all
-clc
+%clc
 
 Vbase = 4160/sqrt(3);
 Sbase = 5e6;

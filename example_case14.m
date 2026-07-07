@@ -11,13 +11,13 @@
 %	MATPOWER 5.1 available at http://www.pserc.cornell.edu/matpower/
 %
 
-clear all
+%clear all
 close all
-clc
+%clc
 
 % Import MatPower 5.1 library
 
-addpath('matpower5.1');
+%addpath('matpower5.1');
 define_constants;
 
 % Load grid model
@@ -31,7 +31,7 @@ results = runpf(mpc, mpoption('VERBOSE', 0, 'OUT_ALL',0));
 
 % Get admittance matrix, power injections, and voltage references, from the model
 
-Ybus = makeYbus(mpc.baseMVA, mpc.bus, mpc.branch);
+Ybus = makeYbus(mpc.baseMVA, mpc.bus, mpc.branch); %to python
 Sbus = makeSbus(mpc.baseMVA, mpc.bus, mpc.gen);
 Pbus = real(Sbus);
 Qbus = imag(Sbus);
@@ -44,27 +44,27 @@ Vbus(mpc.gen(:,GEN_BUS)) = mpc.gen(:,VG);
 %%%%% Linearization point (given voltage magnitude and angle)
 
 % Flat voltage profile
-V0 = ones(n,1);
-A0 = zeros(n,1);
+V0 = ones(n,1);  %to python
+A0 = zeros(n,1); %to python
 
 % Corresponding current injection
-J0 = Ybus*(V0.*exp(1j*A0));
+J0 = Ybus*(V0.*exp(1j*A0)); %to python
 
 % Corresponding power injection
-S0 = V0.*exp(1j*A0).*conj(J0);
+S0 = V0.*exp(1j*A0).*conj(J0); %to python
 P0 = real(S0);
 Q0 = imag(S0);
 
 %%%%% Linear system of equations for the grid model
 
-UU = bracket(diag(V0.*exp(1j*A0)));
-JJ = bracket(diag(conj(J0)));
-NN = Nmatrix(2*n);
-YY = bracket(Ybus);
-PP = Rmatrix(ones(n,1), zeros(n,1));
+UU = bracket(diag(V0.*exp(1j*A0)));  %to python
+JJ = bracket(diag(conj(J0)));        %to python
+NN = Nmatrix(2*n);                   %to python
+YY = bracket(Ybus);                  %to python
+PP = Rmatrix(ones(n,1), zeros(n,1)); %to python
 
-AA = zeros(2*n,4*n);
-BB = zeros(2*n,1);
+AA = zeros(2*n,4*n); %to python
+BB = zeros(2*n,1);   %to python
 
 V_OFFSET = 0;
 A_OFFSET = 1*n;
@@ -93,14 +93,14 @@ for bus = 1:n
 	end
 end
 
-Agrid = [(JJ + UU*NN*YY)*PP -eye(2*n)];
-Amat = [Agrid; AA];
-Bmat = [zeros(2*n,1); BB]; 
+Agrid = [(JJ + UU*NN*YY)*PP -eye(2*n)]; %to python
+Amat = [Agrid; AA];                     %to python
+Bmat = [zeros(2*n,1); BB];              %to python
 
-x = Amat\Bmat;
+x = Amat\Bmat;                          %to python
 
-approxVM = V0 + x(1:n);
-approxVA = (A0 + x(n+1:2*n))/pi*180;
+approxVM = V0 + x(1:n);                 %to python
+approxVA = (A0 + x(n+1:2*n))/pi*180;    %to python
 
 %%%%%%%%%%%%%%%%
 
