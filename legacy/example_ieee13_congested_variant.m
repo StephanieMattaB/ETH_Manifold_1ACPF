@@ -340,10 +340,7 @@ fprintf('\nm_v range (no-load offset): [%.4f, %.4f] p.u.\n', ...
 
 %% voltage constraint (set  bandwidth)
 
-vmin = 0.95 * ones(nNonSlackPhi,1);   % real regulatory limits (kept)
-vmax = 1.05 * ones(nNonSlackPhi,1);
-
-vmin = 0.95*ones(nPhys,1);
+vmin = 0.95*ones(nPhys,1); % real regulatory limits (kept)
 vmax = 1.05*ones(nPhys,1);
 
 A_grid = [
@@ -356,15 +353,6 @@ b_grid = [
     -vmin + m_v_phys
 ];
 
-A_grid = [ ...
-     S_v;
-    -S_v
-];
-
-b_grid = [ ...
-     vmax - m_v;
-    -vmin + m_v
-];
 
 %% validation
 
@@ -390,8 +378,8 @@ fprintf('\nS_v size:     %d x %d\n', size(S_v,1), size(S_v,2));
 fprintf('A_grid size:  %d x %d\n', size(A_grid,1), size(A_grid,2));
 fprintf('b_grid size:  %d x %d\n', size(b_grid,1), size(b_grid,2));
 
-fprintf('\nMaximum voltage: %.6f p.u.\n', max(vstar_ns));
-fprintf('Minimum voltage: %.6f p.u.\n', min(vstar_ns));
+fprintf('\nMaximum voltage: %.6f p.u.\n', max(vstar_phys));
+fprintf('Minimum voltage: %.6f p.u.\n', min(vstar_phys));
 fprintf('Maximum constraint violation: %.6e p.u.\n', ...
     max(constraintResidual));
 
@@ -575,17 +563,19 @@ fprintf('A_F_game size:     %d x %d\n', size(A_F_game,1), size(A_F_game,2));
 %   [dp_671_a, dp_671_b, dp_671_c, ...
 %    dq_671_a, dq_671_b, dq_671_c]
 
-assert(isequal(size(A_F_game), [72, 14]), ...
-    'A_F_game must be 72 x 14.');
+m_sh = 2*nPhys;   % 58 = physical voltage rows (upper + lower)
 
-assert(isequal(size(b_shF), [72, 1]), ...
-    'b_shF must be 72 x 1.');
+assert(isequal(size(A_F_game), [m_sh, 14]), ...
+    'A_F_game has unexpected dimensions.');
+
+assert(isequal(size(b_shF), [m_sh, 1]), ...
+    'b_shF has unexpected dimensions.');
 
 % Verify upper/lower voltage-row structure
 assert(norm( ...
-    A_F_game(37:72,:) + A_F_game(1:36,:), ...
+    A_F_game(nPhys+1:end,:) + A_F_game(1:nPhys,:), ...
     'fro') < 1e-10, ...
-    'Rows 37:72 must be the negative of rows 1:36.');
+    'Upper/lower voltage rows are inconsistent.');
 
 % Player metadata
 player_ids = [645; 611; 652; 671];
@@ -606,31 +596,31 @@ constraint_convention = ...
 %% ============================================================
 %  Congestion diagnostics on the exported shared constraint
 %  ------------------------------------------------------------
-%  b_shF encodes the operating-point margins:
-%     rows  1:36  ->  vmax - vstar_ns   (headroom to upper limit)
-%     rows 37:72  ->  vstar_ns - vmin   (headroom to lower limit)
+%  b_shF encodes the operating-point margins on the physical rows:
+%     rows        1:nPhys   ->  vmax - vstar_phys  (headroom to upper limit)
+%     rows nPhys+1:2*nPhys  ->  vstar_phys - vmin  (headroom to lower limit)
 %  A "small" margin (near 0) or negative margin means that bus-phase
 %  is congested and the flexible players must act to relieve it.
 %% ============================================================
 
 % Confirm the margin interpretation exactly.
-margin_upper = vmax - vstar_ns;      % 36 x 1
-margin_lower = vstar_ns - vmin;      % 36 x 1
+margin_upper = vmax - vstar_phys;      % nPhys x 1
+margin_lower = vstar_phys - vmin;      % nPhys x 1
 assert(norm(b_shF - [margin_upper; margin_lower], inf) < 1e-9, ...
-    'b_shF does not match [vmax - vstar_ns; vstar_ns - vmin].');
+    'b_shF does not match [vmax - vstar_phys; vstar_phys - vmin].');
 
-% Map each of the 36 non-slack phase slots back to (bus, phase).
-nonSlackFull = (4:nPhi).';                 % full 39-slot indices 4..39
-busOf   = ceil(nonSlackFull/3);
-phaseOf = mod(nonSlackFull-1,3) + 1;
+% Map each physical (non-NaN) non-slack phase slot back to (bus, phase).
+physicalFull = idx.nonSlackPhase(valid_ns).';   % full 39-slot physical indices
+busOf   = ceil(physicalFull/3);
+phaseOf = mod(physicalFull-1,3) + 1;
 phChar  = 'abc';
 playerBuses = [5 7 12 13];                 % 645, 671, 611, 652
 
 tol_small = 0.02;                          % "near a limit" threshold [pu]
 
 fprintf('\n=== Congestion diagnostics (load_scale = %.3f) ===\n', load_scale);
-fprintf('vstar_ns range: [%.4f, %.4f] p.u.  (limits 0.95 / 1.05)\n', ...
-    min(vstar_ns), max(vstar_ns));
+fprintf('vstar_phys range: [%.4f, %.4f] p.u.  (limits 0.95 / 1.05)\n', ...
+    min(vstar_phys), max(vstar_phys));
 
 n_small_up  = nnz(margin_upper < tol_small);
 n_small_lo  = nnz(margin_lower < tol_small);
@@ -643,13 +633,13 @@ fprintf('Rows already violated (<0) : upper %d, lower %d\n', ...
 
 % List the tight lower-voltage rows (sag toward vmin) — usually the
 % binding ones under heavy load — and flag player-adjacent buses.
-fprintf('\nTight LOWER-limit rows (vstar_ns near vmin):\n');
+fprintf('\nTight LOWER-limit rows (vstar_phys near vmin):\n');
 [~, ord] = sort(margin_lower, 'ascend');
 for r = ord(1:min(15,numel(ord))).'
     tag = '';
     if ismember(busOf(r), playerBuses), tag = '  <-- player bus'; end
     fprintf('  bus %2d phase %c : v = %.4f  margin_lo = %+.4f%s\n', ...
-        busOf(r), phChar(phaseOf(r)), vstar_ns(r), margin_lower(r), tag);
+        busOf(r), phChar(phaseOf(r)), vstar_phys(r), margin_lower(r), tag);
 end
 
 % Sanity target reminder for the DyNECT / OSQP stage.
@@ -671,8 +661,9 @@ stress_meta = struct( ...
     'load_scale',   load_scale, ...
     'vmin',         vmin(1), ...
     'vmax',         vmax(1), ...
-    'vstar_min',    min(vstar_ns), ...
-    'vstar_max',    max(vstar_ns));
+    'vstar_min',    min(vstar_phys), ...
+    'vstar_max',    max(vstar_phys), ...
+    'm_sh',         m_sh);
 
 save(export_file, ...
     "A_F_game", ...
@@ -716,3 +707,4 @@ fprintf('\nExported network data to:\n%s\n', export_file);
 % 	end
 % 
 % end
+
