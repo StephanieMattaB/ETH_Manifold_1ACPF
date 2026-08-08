@@ -7,12 +7,19 @@ function sh = derive_shared_constraint(tp, p_star, q_star, n, valid_mask, vmin, 
 %                                  vmin, vmax, community)
 %
 %   MUST be called with the tangent plane (tp, from bd_tangent_general.m)
-%   built at S'' -- the final, validated, active-and-congested operating
-%   point -- and nowhere else in the pipeline.
+%   built at S'''s NONLINEAR AC-CONVERGED operating point -- NOT the
+%   one-shot manifold/linear estimate. Section 3 explicitly adopts S'' "as
+%   the operating system" only AFTER the manifold-vs-AC comparison; the
+%   physically selected point v*'' is therefore the validated AC solution.
+%   Anchoring here at the fast linear estimate instead silently changes
+%   which rows the exported constraint reports as violated (see the
+%   invariant check the caller is expected to run against independently
+%   computed AC violation counts).
 %
 %   INPUTS
 %   tp         : struct from bd_tangent_general.m, evaluated at S'''s
-%                manifold operating point (v_star = tp.v_star, etc).
+%                NONLINEAR AC operating point (v_star = tp.v_star = AC v,
+%                t_star = tp.t_star = AC theta).
 %   p_star,q_star : 3n x 1 net-consumption specification of S'' (the same
 %                vectors passed into bd_linear_solve.m for S'').
 %   valid_mask : 3n x 1 logical, physically connected terminals (S is
@@ -90,18 +97,21 @@ function sh = derive_shared_constraint(tp, p_star, q_star, n, valid_mask, vmin, 
     idxF_p = idxF_all;
     idxF_q = nNonSlackPhi + idxF_all;
     cols_F = [idxF_p, idxF_q];
-    cols_P = setdiff(1:(2*nNonSlackPhi), cols_F, 'stable');
 
     sbar_ns = sstar_ns;
     A_F = A_grid(:, cols_F);
-    A_P = A_grid(:, cols_P);
-    sbar_F = sbar_ns(cols_F);
-    sbar_P = sbar_ns(cols_P);
+    sbar_F = sbar_ns(cols_F);   % kept for reporting the players' S'' baseline injection only
 
-    % Delta s_P = 0 (rest of feeder held at S''): b_F,sh = b_grid - A_F*sbar_F - A_P*sbar_P
-    b_F_sh = b_grid - A_F*sbar_F - A_P*sbar_P;
-    assert(norm(b_F_sh - (b_grid - A_grid*sbar_ns), inf) < 1e-10, ...
-        'derive_shared_constraint:partitionInconsistent', 'Flexible/protected partition is inconsistent.');
+    % Delta s_P = 0 (rest of feeder held fixed at S''): in the PURE DEVIATION
+    % formulation this drops the A_P*Delta_s_P term from the LHS and leaves
+    % the RHS untouched -- per spec, b_F,sh = b_grid EXACTLY (Section 6):
+    %     A_F*Delta_s_F + A_P*Delta_s_P <= b_grid,  Delta_s_P = 0
+    %     => A_F*Delta_s_F <= b_grid  =>  b_F,sh := b_grid.
+    % (A previous version of this code subtracted A_F*sbar_F + A_P*sbar_P
+    % here, which is wrong: sbar_F/sbar_P are ABSOLUTE baseline injections,
+    % not deviations, and subtracting them corrupted b_F,sh by up to ~0.19 pu
+    % relative to b_grid -- caught by comparing against the AC ground truth.)
+    b_F_sh = b_grid;
 
     % Reorder columns per-player as [p_phases, q_phases] concatenated in
     % community order (645, 611, 652, 671), derived programmatically from
@@ -130,6 +140,7 @@ function sh = derive_shared_constraint(tp, p_star, q_star, n, valid_mask, vmin, 
     sh.vmin = vmin; sh.vmax = vmax;
     sh.A_grid = A_grid; sh.b_grid = b_grid;
     sh.A_F_sh = A_F_sh; sh.b_F_sh = b_F_sh;
+    sh.sbar_F = sbar_F(reorder);   % players' S'' baseline injection, same column order as A_F_sh
     sh.player_ids = [community.id]';
     sh.n_physical = 2*cellfun(@numel, idxF_phase)';
     sh.block_start = block_start; sh.block_end = block_end;
