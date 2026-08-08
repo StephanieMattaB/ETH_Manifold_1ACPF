@@ -80,14 +80,32 @@ $$
 
 ### 2.2 Nonlinear AC ground truth
 
-No solver for unbalanced three-phase nonlinear AC power flow existed in
-this repository (MATPOWER, used elsewhere in the codebase, is
-positive-sequence/balanced only). `solve_acpf_3ph_rect.m` is a
-purpose-built Newton–Raphson solver in rectangular coordinates, operating
-directly on the same multiphase admittance matrix $Y$ built by `ieee13.m`,
-used identically at every stage as the independent validation reference.
-It converges in 3–4 Newton iterations to a mismatch below $10^{-12}$ p.u.
-in every case reported here.
+The original paper's repository (Bolognani & Dörfler's code, upstream of
+this branch) never solves the nonlinear equations for IEEE-13 at all: its
+`example_ieee13.m` compares the 1ACPF linear estimate against a **hardcoded
+published solution table** (Kersting's official IEEE-13 reference
+voltages), not against anything computed in the repo. The repo's only
+actual nonlinear solver call is a separate `example_case14.m` demo using
+MATPOWER — but that is the unrelated, balanced, positive-sequence IEEE-14
+system; MATPOWER cannot solve an unbalanced three-phase feeder like
+IEEE-13 at all, so it was never, and could never be, applied here. No
+LinDistFlow or other linearized-distribution solver is used anywhere in
+this codebase either.
+
+`solve_acpf_3ph_rect.m` — a genuine independent Newton–Raphson solver in
+rectangular coordinates, operating directly on the same multiphase
+admittance matrix $Y$ built by `ieee13.m` — is what fills that gap and is
+used identically at every stage as this report's validation reference. It
+predates this report's own work: it was introduced on this branch in an
+earlier session (commit `511141c`, prior to the $\mathcal S\to\mathcal
+S'\to\mathcal S''$ pipeline built here) and is reused unchanged throughout.
+Its Jacobian is analytic (not finite-difference) — the four block formulas
+for $\partial[P;Q]/\partial[e;f]$ were independently re-derived from
+$P=e\odot I_{re}+f\odot I_{im}$, $Q=f\odot I_{re}-e\odot I_{im}$ as part of
+this work and confirmed to match the code exactly — with a backtracking
+line search (Armijo sufficient-decrease) for robustness under stress. It
+converges in 3–4 Newton iterations to a mismatch below $10^{-12}$ p.u. in
+every case reported here.
 
 ### 2.3 Physical connectivity mask
 
@@ -509,7 +527,7 @@ independently, same numerical results to solver-precision).
 | file | role |
 |---|---|
 | `ieee13.m`, `Nmatrix.m`, `Rmatrix.m`, `bracket.m`, `rw.m` | original paper's machinery, unmodified |
-| `solve_acpf_3ph_rect.m` | nonlinear 3-phase AC solver (new, this work) |
+| `solve_acpf_3ph_rect.m` | nonlinear 3-phase AC solver (predates this report; introduced on this branch, commit `511141c`; Jacobian independently verified, Section 2.2) |
 | `ieee13_der.m`, `ieee13_congest.m`, `ieee13_capacitors.m` | $\mathcal S\to\mathcal S'\to\mathcal S''$ construction |
 | `bd_linear_solve.m`, `bd_tangent_general.m` | one-shot and general tangent-plane linearizations |
 | `voltage_report.m`, `compare_voltages.m` | shared diagnostics used identically at every stage |
