@@ -12,6 +12,20 @@
 %   3. solve the feasibility LP: is F empty or not?
 %   4. if non-empty, solve the minimum-effort QP: min (1/2)||x_F||^2 s.t. F
 %   5. validate the minimum-effort dispatch in the NONLINEAR AC model
+%
+% IMPORTANT SCOPING NOTE: this script is a DOWNSTREAM DIAGNOSTIC of the DSO
+% output (A_F_sh, b_F_sh from derive_shared_constraint.m), not a
+% precondition for it. A_F_sh/b_F_sh are already fully valid as the LOCAL
+% voltage-security constraint of the community's controllable variables
+% around the selected, AC-validated S'' operating point -- that is exactly
+% the theoretical meaning of a tangent-plane constraint, and nothing here
+% changes it. What steps 4-5 test is a SEPARATE question: whether one
+% particular (minimum-effort) corrective dispatch, evaluated far enough
+% from the S'' linearization point to matter, still holds up when re-solved
+% in the true nonlinear AC model. A negative answer to that question is a
+% statement about the RANGE OF VALIDITY of the local constraint under a
+% large correction -- it does not retract S'' as the adopted operating
+% point, nor invalidate A_F_sh/b_F_sh as the DSO-to-community interface.
 
 clear all
 close all
