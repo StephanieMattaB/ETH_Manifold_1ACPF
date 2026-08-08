@@ -102,35 +102,30 @@ fprintf('  originally-violated shared rows now satisfied (min-effort): %d / %d\n
     n_resolved_sh_min, n_neg_upper+n_neg_lower);
 
 fprintf('\n  Per-player minimum-effort dispatch (pu, community column order):\n');
-labels14 = {'p645b','p645c','p611c','p652a','p671a','p671b','p671c', ...
-            'q645b','q645c','q611c','q652a','q671a','q671b','q671c'};
-for i = 1:14
-    fprintf('    %-6s : %+.5f  (bounds [%+.4f, %+.4f])\n', labels14{i}, qp.x(i), lo(i), hi(i));
+layout = sh.layout;   % single source of truth (community_column_layout.m), NOT re-derived here
+for i = 1:layout.n
+    fprintf('    %-6s : %+.5f  (bounds [%+.4f, %+.4f])\n', layout.labels{i}, qp.x(i), lo(i), hi(i));
 end
 
 %% Step 5: AC-validate the minimum-effort dispatch
 
 fprintf('\n-- Step 5: nonlinear-AC validation of x_min --\n');
 
-% Map x_min (14, community column order) back onto the full 3n-vector
-% net-consumption specification, s'' + x_min, in ORIGINAL sign convention:
-% x_F are deviations of the SAME net-consumption variables s_ns used
-% throughout, so p_corrected = p_S2 + Delta_p at the community rows.
-idxF_p_full = [];
-for k = 1:numel(der_meta.community)
-    c = der_meta.community(k);
-    idxF_p_full = [idxF_p_full; rw(c.bus, c.phase)]; %#ok<AGROW>
-end
-idxF_q_full = idxF_p_full;   % same bus-phase set, q-block
-
-nF = numel(idxF_p_full);
-dP = qp.x(1:nF);
-dQ = qp.x(nF+1:end);
-
+% Map x_min (14, layout column order) back onto the full 3n-vector net-
+% consumption specification, s'' + x_min: loop column-by-column using
+% layout.full_idx/layout.is_q rather than assuming any block structure --
+% this is exactly the mapping that was previously wrong (a flat
+% p-block-then-q-block split that did not match A_F_sh's actual per-player
+% column order), corrupting 9 of the 14 columns' physical meaning.
 p_corrected = p_S2;
 q_corrected = q_S2;
-p_corrected(idxF_p_full) = p_corrected(idxF_p_full) + dP;
-q_corrected(idxF_q_full) = q_corrected(idxF_q_full) + dQ;
+for i = 1:layout.n
+    if layout.is_q(i)
+        q_corrected(layout.full_idx(i)) = q_corrected(layout.full_idx(i)) + qp.x(i);
+    else
+        p_corrected(layout.full_idx(i)) = p_corrected(layout.full_idx(i)) + qp.x(i);
+    end
+end
 
 corrected = run_stage('S'''' + minimum-effort correction', Y, n, v_slack, t_slack, ...
     p_corrected, q_corrected, valid_mask, bus_labels, phase_labels, vmin, vmax, ac_opts, Spp.ac.V);
@@ -140,6 +135,41 @@ fprintf('  S'''' baseline   : Vmin %.6f, Vmax %.6f, violations %d/%d\n', ...
     Spp.rep_ac_ns.Vmin, Spp.rep_ac_ns.Vmax, Spp.rep_ac_ns.n_violations, Spp.rep_ac_ns.n_physical);
 fprintf('  after correction: Vmin %.6f, Vmax %.6f, violations %d/%d\n', ...
     corrected.rep_ac_ns.Vmin, corrected.rep_ac_ns.Vmax, corrected.rep_ac_ns.n_violations, corrected.rep_ac_ns.n_physical);
+
+%% Consistency printout (per the requested cross-check): same x_min, both
+%  the LINEAR prediction and a FRESH independent AC solve, with the row
+%  attaining each minimum -- must satisfy V_min_lin >= vmin (by feasibility
+%  of x_min) and |V_min_lin - V_min_AC_fresh| <= e_max (by definition of
+%  e_max), so V_min_AC_fresh >= vmin - e_max necessarily.
+
+s_corrected_ns = [p_corrected(sh.idx.nonSlackPhase); q_corrected(sh.idx.nonSlackPhase)];
+v_pred_ns = sh.S_v*s_corrected_ns + sh.m_v;
+v_pred_phys = v_pred_ns(sh.valid_ns);
+[v_pred_min, i_pred_min] = min(v_pred_phys);
+
+v_ac_fresh_ns = corrected.ac.v(sh.idx.nonSlackPhase);
+v_ac_fresh_phys = v_ac_fresh_ns(sh.valid_ns);
+[v_ac_min, i_ac_min] = min(v_ac_fresh_phys);
+
+err_phys = abs(v_pred_phys - v_ac_fresh_phys);
+[e_max, i_err_max] = max(err_phys);
+
+phys_full_idx = sh.idx.nonSlackPhase(sh.valid_ns);
+term = @(k) sprintf('%s.%s', bus_labels{ceil(phys_full_idx(k)/3)}, phase_labels{mod(phys_full_idx(k)-1,3)+1});
+
+fprintf('\n-- Consistency check (same x_min, linear prediction vs fresh AC) --\n');
+fprintf('  ||x_min||_2                    = %.6f pu\n', norm(qp.x));
+fprintf('  min(v_lin(x_min))    = %.6f pu at %s   (must be >= vmin=%.2f since x_min in F)\n', ...
+    v_pred_min, term(i_pred_min), vmin);
+fprintf('  min(v_AC_fresh(x_min)) = %.6f pu at %s\n', v_ac_min, term(i_ac_min));
+fprintf('  max|v_lin - v_AC_fresh|         = %.3e pu at %s\n', e_max, term(i_err_max));
+fprintf('  implied lower bound on v_AC_fresh: vmin - e_max = %.6f pu\n', vmin - e_max);
+assert(v_pred_min >= vmin - 1e-9, 'run_feasibility_check:linearInfeasible', ...
+    'x_min''s own linear prediction violates vmin -- x_min is not actually in F.');
+assert(v_ac_min >= vmin - e_max - 1e-9, 'run_feasibility_check:inconsistentWithErrorBound', ...
+    'v_AC_fresh(x_min) = %.6f is below vmin-e_max = %.6f -- contradicts the error bound, mapping bug likely.', ...
+    v_ac_min, vmin - e_max);
+fprintf('  Consistency check PASSED: no contradiction between linear feasibility and the AC result.\n');
 
 if corrected.rep_ac_ns.n_violations == 0
     fprintf('\n>>> CERTIFIED: the minimum-effort linear correction, applied to the true nonlinear\n');

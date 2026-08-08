@@ -82,25 +82,19 @@ function sh = derive_shared_constraint(tp, p_star, q_star, n, valid_mask, vmin, 
     b_grid = [vmax*ones(nPhys,1) - vstar_phys; vstar_phys - vmin*ones(nPhys,1)];
 
     % --- Section 6: projection onto the energy community -------------------
-    phase.a = 1; phase.b = 2; phase.c = 3;
-    busPhaseIdx   = @(bus, ph) 3*(bus - 1) + ph;
-    toNonSlackIdx = @(fullIdx) fullIdx - 3;
+    % Single source of truth for the 14-column layout (per-player, [p,q]
+    % contiguous blocks) -- built ONCE here and must be reused, unchanged,
+    % by every downstream script that maps x_F back onto the network
+    % (ieee13_local_capability.m, run_feasibility_check.m,
+    % run_io_map_accuracy.m). Do not re-derive this ordering elsewhere.
+    layout = community_column_layout(community);
 
-    nPlayers = numel(community);
-    idxF_phase = cell(1, nPlayers);
-    for k = 1:nPlayers
-        idxF_phase{k} = toNonSlackIdx(busPhaseIdx(community(k).bus, community(k).phase));
-    end
-    idxF_all = [idxF_phase{:}];
-    assert(numel(unique(idxF_all)) == numel(idxF_all), 'Duplicate flexible bus-phase indices.');
+    nonSlackIdx = layout.full_idx - 3;   % full-vector -> non-slack-space index
+    cols_F = nonSlackIdx + layout.is_q*nNonSlackPhi;   % column into A_grid's 72-wide space
+    assert(numel(unique(cols_F)) == numel(cols_F), 'Duplicate flexible bus-phase/type columns.');
 
-    idxF_p = idxF_all;
-    idxF_q = nNonSlackPhi + idxF_all;
-    cols_F = [idxF_p, idxF_q];
-
-    sbar_ns = sstar_ns;
-    A_F = A_grid(:, cols_F);
-    sbar_F = sbar_ns(cols_F);   % kept for reporting the players' S'' baseline injection only
+    A_F_sh = A_grid(:, cols_F);
+    sbar_F = sstar_ns(cols_F);   % kept for reporting the players' S'' baseline injection only
 
     % Delta s_P = 0 (rest of feeder held fixed at S''): in the PURE DEVIATION
     % formulation this drops the A_P*Delta_s_P term from the LHS and leaves
@@ -109,29 +103,13 @@ function sh = derive_shared_constraint(tp, p_star, q_star, n, valid_mask, vmin, 
     %     => A_F*Delta_s_F <= b_grid  =>  b_F,sh := b_grid.
     % (A previous version of this code subtracted A_F*sbar_F + A_P*sbar_P
     % here, which is wrong: sbar_F/sbar_P are ABSOLUTE baseline injections,
-    % not deviations, and subtracting them corrupted b_F,sh by up to ~0.19 pu
-    % relative to b_grid -- caught by comparing against the AC ground truth.)
+    % not deviations, and subtracting them corrupted b_F,sh relative to b_grid
+    % -- caught by comparing against the AC ground truth.)
     b_F_sh = b_grid;
 
-    % Reorder columns per-player as [p_phases, q_phases] concatenated in
-    % community order (645, 611, 652, 671), derived programmatically from
-    % `community` rather than hand-written column numbers.
-    nF = numel(idxF_all);
-    reorder = zeros(1, 2*nF);
-    block_start = zeros(nPlayers,1); block_end = zeros(nPlayers,1);
-    cursor = 0; pOffset = 0;
-    for k = 1:nPlayers
-        php = numel(idxF_phase{k});
-        pLocal = (pOffset+1):(pOffset+php);
-        qLocal = nF + pLocal;
-        reorder(cursor+1:cursor+2*php) = [pLocal, qLocal];
-        block_start(k) = cursor+1;
-        block_end(k)   = cursor+2*php;
-        cursor = cursor + 2*php;
-        pOffset = pOffset + php;
-    end
-
-    A_F_sh = A_F(:, reorder);
+    nPlayers = numel(community);
+    block_start = layout.block_start;
+    block_end = layout.block_end;
 
     sh.idx = idx;
     sh.S_v = S_v; sh.S_theta = S_theta; sh.m_v = m_v;
@@ -140,12 +118,13 @@ function sh = derive_shared_constraint(tp, p_star, q_star, n, valid_mask, vmin, 
     sh.vmin = vmin; sh.vmax = vmax;
     sh.A_grid = A_grid; sh.b_grid = b_grid;
     sh.A_F_sh = A_F_sh; sh.b_F_sh = b_F_sh;
-    sh.sbar_F = sbar_F(reorder);   % players' S'' baseline injection, same column order as A_F_sh
+    sh.sbar_F = sbar_F;   % players' S'' baseline injection, same column order as A_F_sh/layout
+    sh.layout = layout;   % single source of truth for what each of the 14 columns means
     sh.player_ids = [community.id]';
-    sh.n_physical = 2*cellfun(@numel, idxF_phase)';
+    sh.n_physical = (block_end - block_start + 1);
     sh.block_start = block_start; sh.block_end = block_end;
     sh.margin_upper = vmax - vstar_phys;
     sh.margin_lower = vstar_phys - vmin;
     sh.coordinate_convention = 'physical variables are active/reactive DEVIATIONS from the S'' baseline';
-    sh.constraint_convention = 'A_F_sh * Delta_s_F <= b_F_sh, columns ordered per player [645,611,652,671], each as [p_phases, q_phases]';
+    sh.constraint_convention = 'A_F_sh * Delta_s_F <= b_F_sh, columns per community_column_layout.m (per player, [p_phases, q_phases])';
 end

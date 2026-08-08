@@ -30,12 +30,12 @@ run_ieee13_pipeline;   % fresh S, S', S'', sh, Y, n, der_meta, valid_mask, ...
 [A_loc, b_loc, lo, hi] = ieee13_local_capability(der_meta.community); %#ok<ASGLU>
 nF = numel(lo);
 
-% Community bus-phase full-vector indices, same order as A_F_sh columns.
-idxF_full = [];
-for k = 1:numel(der_meta.community)
-    c = der_meta.community(k);
-    idxF_full = [idxF_full; rw(c.bus, c.phase)]; %#ok<AGROW>
-end
+% Single source of truth for what each of the 14 columns of dF means
+% (community_column_layout.m) -- NOT a locally re-derived index list. This
+% is exactly the mapping that was previously wrong here (assumed a flat
+% p-block-then-q-block split that did not match A_F_sh's actual column
+% order), producing a self-consistent-looking but physically wrong sweep.
+layout = sh.layout;
 
 idx = sh.idx;
 valid_ns = sh.valid_ns;
@@ -85,8 +85,13 @@ for si = 1:numel(samples)
     dF = samples(si).dF;
 
     p_pert = p_S2; q_pert = q_S2;
-    p_pert(idxF_full) = p_pert(idxF_full) + dF(1:nF/2);
-    q_pert(idxF_full) = q_pert(idxF_full) + dF(nF/2+1:end);
+    for ci = 1:layout.n
+        if layout.is_q(ci)
+            q_pert(layout.full_idx(ci)) = q_pert(layout.full_idx(ci)) + dF(ci);
+        else
+            p_pert(layout.full_idx(ci)) = p_pert(layout.full_idx(ci)) + dF(ci);
+        end
+    end
 
     % Predicted voltage from the tangent map, no AC solve involved. Build
     % the full non-slack deviation vector directly from p_pert/q_pert

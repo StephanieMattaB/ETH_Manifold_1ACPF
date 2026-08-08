@@ -1,7 +1,10 @@
 function [A_loc, b_loc, lo, hi] = ieee13_local_capability(community, up_frac, q_frac)
 %IEEE13_LOCAL_CAPABILITY Local (per-inverter) box capability constraints
-%A_loc*x_F <= b_loc, in the SAME 14-column order as A_F_sh/derive_shared_
-%constraint.m: per player [645,611,652,671], each as [p_phases, q_phases].
+%A_loc*x_F <= b_loc, in the SAME 14-column order as A_F_sh
+%(community_column_layout.m: per player [645,611,652,671], each as
+%[p_phases, q_phases] contiguous) -- built from that SAME layout function,
+%not re-derived, to avoid the exact column-order mismatch this class of
+%bug caused previously.
 %
 %   [A_loc, b_loc, lo, hi] = IEEE13_LOCAL_CAPABILITY(community, up_frac, q_frac)
 %
@@ -29,24 +32,31 @@ function [A_loc, b_loc, lo, hi] = ieee13_local_capability(community, up_frac, q_
 %   OUTPUTS
 %   A_loc, b_loc : 28 x 14 / 28 x 1, such that A_loc*x_F <= b_loc encodes
 %                  lo <= x_F <= hi.
-%   lo, hi       : 14 x 1 bounds themselves, for reporting.
+%   lo, hi       : 14 x 1 bounds themselves (layout order), for reporting.
 
     if nargin < 2 || isempty(up_frac); up_frac = 0.20; end
     if nargin < 3 || isempty(q_frac);  q_frac  = 0.30; end
 
     Sbase = 5e6;
-    P_DER_kW = [community.p_kW];          % 7-vector, community column order
-    P_DER_pu = P_DER_kW(:) * 1e3 / Sbase;
+    layout = community_column_layout(community);
+    nF = layout.n;
 
-    lo_p = -up_frac * P_DER_pu;
-    hi_p =  P_DER_pu;
-    lo_q = -q_frac * P_DER_pu;
-    hi_q =  q_frac * P_DER_pu;
+    lo = zeros(nF,1); hi = zeros(nF,1);
+    for i = 1:nF
+        k = layout.player_of_col(i);
+        c = community(k);
+        pidx = find(c.phase == layout.phase(i), 1);
+        P_DER_pu = c.p_kW(pidx) * 1e3 / Sbase;
 
-    lo = [lo_p; lo_q];
-    hi = [hi_p; hi_q];
+        if layout.is_q(i)
+            lo(i) = -q_frac * P_DER_pu;
+            hi(i) =  q_frac * P_DER_pu;
+        else
+            lo(i) = -up_frac * P_DER_pu;
+            hi(i) =  P_DER_pu;
+        end
+    end
 
-    nF = numel(lo);
     A_loc = [eye(nF); -eye(nF)];
     b_loc = [hi; -lo];
 end

@@ -96,8 +96,7 @@ for i = 1:sh.nPhys
     ph_idx  = mod(physicalFull(i)-1,3)+1;
     row_labels{i} = sprintf('%s.%s', bus_labels{bus_idx}, phase_labels{ph_idx});
 end
-col_labels = {'p645b','p645c','p611c','p652a','p671a','p671b','p671c', ...
-              'q645b','q645c','q611c','q652a','q671a','q671b','q671c'};
+col_labels = sh.layout.labels;   % single source of truth, not re-derived
 
 figure('visible','off','position',[0,0,700,900]);
 imagesc(abs(Sv_F));
