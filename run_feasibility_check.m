@@ -1,0 +1,143 @@
+%% RUN_FEASIBILITY_CHECK
+%
+% Pure feasibility test of the four-player energy-community flexibility
+% problem at the corrected S'' interface -- NO game objectives, NO Nash
+% equilibrium, NO Q/q cost structure, NO Nabetani/PWA machinery. Only:
+%
+%   F = { x_F : A_F_sh*x_F <= b_F_sh,  A_loc*x_F <= b_loc }
+%
+% Checkpoint order (per the agreed structure):
+%   1. re-derive the corrected S'' interface (run_ieee13_pipeline.m)
+%   2. confirm x_F = 0 is infeasible w.r.t. the AC-derived violated rows
+%   3. solve the feasibility LP: is F empty or not?
+%   4. if non-empty, solve the minimum-effort QP: min (1/2)||x_F||^2 s.t. F
+%   5. validate the minimum-effort dispatch in the NONLINEAR AC model
+
+clear all
+close all
+clc
+
+run_ieee13_pipeline;   % re-derives S, S', S'', sh (corrected interface), Y, n,
+                        % der_meta, valid_mask, vmin, vmax, ac_opts fresh
+
+fprintf('\n\n############################################################\n');
+fprintf('FEASIBILITY CHECK: F = {x_F : A_F_sh x_F <= b_F_sh, A_loc x_F <= b_loc}\n');
+fprintf('############################################################\n');
+
+%% Step 2: x_F = 0 infeasibility, confirmed directly from the (corrected) RHS
+
+n_neg_upper = nnz(sh.b_F_sh(1:sh.nPhys) < 0);
+n_neg_lower = nnz(sh.b_F_sh(sh.nPhys+1:end) < 0);
+x0_infeasible = (n_neg_upper + n_neg_lower) > 0;
+
+fprintf('\n-- Step 2: x_F = 0 feasibility (shared constraint alone) --\n');
+fprintf('  b_F_sh negative rows: %d upper, %d lower (of %d each)\n', ...
+    n_neg_upper, n_neg_lower, sh.nPhys);
+fprintf('  x_F = 0 is %s w.r.t. the shared voltage-security constraint\n', ...
+    ternary(x0_infeasible, 'INFEASIBLE', 'feasible'));
+fprintf('  (must match AC ground truth: %d over / %d under non-slack violations found earlier)\n', ...
+    Spp.rep_ac_ns.n_overvoltage, Spp.rep_ac_ns.n_undervoltage);
+assert(n_neg_upper == Spp.rep_ac_ns.n_overvoltage && n_neg_lower == Spp.rep_ac_ns.n_undervoltage, ...
+    'run_feasibility_check:mismatch', 'x_F=0 infeasibility pattern does not match AC ground truth.');
+
+%% Step 3: local capability constraints + feasibility LP
+
+[A_loc, b_loc, lo, hi] = ieee13_local_capability(der_meta.community);
+
+fprintf('\n-- Step 3: local capability constraints --\n');
+fprintf('  A_loc: %d x %d (box on all 14 [p,q] community variables)\n', size(A_loc,1), size(A_loc,2));
+fprintf('  bounds (pu): p in [-0.20,+1.00]xP_DER_i, q in [-0.30,+0.30]xP_DER_i (see ieee13_local_capability.m)\n');
+
+feas = feasibility_lp(sh.A_F_sh, sh.b_F_sh, A_loc, b_loc);
+
+fprintf('\n-- Feasibility LP result --\n');
+fprintf('  solver status          : %d (5 = optimal)\n', feas.status);
+fprintf('  min worst-row slack t* : %.6f pu\n', feas.t);
+fprintf('  F is %s\n', ternary(feas.feasible, 'NON-EMPTY (feasible)', 'EMPTY (infeasible)'));
+
+if ~feas.feasible
+    fprintf('\n>>> F is EMPTY: the assumed local capability set cannot restore all shared\n');
+    fprintf('>>> voltage-security rows simultaneously. This means S'''' is too stressed for\n');
+    fprintf('>>> these four participants under the assumed capability -- reconsider lambda,\n');
+    fprintf('>>> DER sizing, or the capability assumption before building the game.\n');
+    return;
+end
+
+fprintf('  worst shared-row slack at x_feas: %.6f pu\n', min(feas.slack_sh));
+fprintf('  worst local-row slack at x_feas : %.6f pu\n', min(feas.slack_loc));
+fprintf('  ||x_feas||_2                     : %.6f pu\n', norm(feas.x));
+
+n_resolved_sh = nnz(sh.b_F_sh < 0 & feas.slack_sh >= -1e-9);
+fprintf('  originally-violated shared rows now satisfied: %d / %d\n', n_resolved_sh, n_neg_upper+n_neg_lower);
+
+%% Step 4: minimum-effort corrective dispatch
+
+qp = min_effort_qp(sh.A_F_sh, sh.b_F_sh, A_loc, b_loc);
+
+fprintf('\n-- Step 4: minimum-effort dispatch  min (1/2)||x_F||^2  s.t. F --\n');
+fprintf('  ADMM iterations         : %d (converged: %d)\n', qp.iterations, qp.converged);
+fprintf('  max constraint violation: %.3e (must be <= 0)\n', qp.max_constraint_violation);
+fprintf('  ||x_min||_2              : %.6f pu   (vs ||x_feas||_2 = %.6f pu)\n', qp.norm2, norm(feas.x));
+
+assert(qp.feasible, 'run_feasibility_check:qpInfeasible', ...
+    'Minimum-effort QP solution violates constraints -- refusing to proceed to AC validation.');
+
+slack_sh_min = sh.b_F_sh - sh.A_F_sh*qp.x;
+n_resolved_sh_min = nnz(sh.b_F_sh < 0 & slack_sh_min >= -1e-9);
+fprintf('  originally-violated shared rows now satisfied (min-effort): %d / %d\n', ...
+    n_resolved_sh_min, n_neg_upper+n_neg_lower);
+
+fprintf('\n  Per-player minimum-effort dispatch (pu, community column order):\n');
+labels14 = {'p645b','p645c','p611c','p652a','p671a','p671b','p671c', ...
+            'q645b','q645c','q611c','q652a','q671a','q671b','q671c'};
+for i = 1:14
+    fprintf('    %-6s : %+.5f  (bounds [%+.4f, %+.4f])\n', labels14{i}, qp.x(i), lo(i), hi(i));
+end
+
+%% Step 5: AC-validate the minimum-effort dispatch
+
+fprintf('\n-- Step 5: nonlinear-AC validation of x_min --\n');
+
+% Map x_min (14, community column order) back onto the full 3n-vector
+% net-consumption specification, s'' + x_min, in ORIGINAL sign convention:
+% x_F are deviations of the SAME net-consumption variables s_ns used
+% throughout, so p_corrected = p_S2 + Delta_p at the community rows.
+idxF_p_full = [];
+for k = 1:numel(der_meta.community)
+    c = der_meta.community(k);
+    idxF_p_full = [idxF_p_full; rw(c.bus, c.phase)]; %#ok<AGROW>
+end
+idxF_q_full = idxF_p_full;   % same bus-phase set, q-block
+
+nF = numel(idxF_p_full);
+dP = qp.x(1:nF);
+dQ = qp.x(nF+1:end);
+
+p_corrected = p_S2;
+q_corrected = q_S2;
+p_corrected(idxF_p_full) = p_corrected(idxF_p_full) + dP;
+q_corrected(idxF_q_full) = q_corrected(idxF_q_full) + dQ;
+
+corrected = run_stage('S'''' + minimum-effort correction', Y, n, v_slack, t_slack, ...
+    p_corrected, q_corrected, valid_mask, bus_labels, phase_labels, vmin, vmax, ac_opts, Spp.ac.V);
+
+fprintf('\n-- Before/after (nonlinear AC, non-slack physical terminals) --\n');
+fprintf('  S'''' baseline   : Vmin %.6f, Vmax %.6f, violations %d/%d\n', ...
+    Spp.rep_ac_ns.Vmin, Spp.rep_ac_ns.Vmax, Spp.rep_ac_ns.n_violations, Spp.rep_ac_ns.n_physical);
+fprintf('  after correction: Vmin %.6f, Vmax %.6f, violations %d/%d\n', ...
+    corrected.rep_ac_ns.Vmin, corrected.rep_ac_ns.Vmax, corrected.rep_ac_ns.n_violations, corrected.rep_ac_ns.n_physical);
+
+if corrected.rep_ac_ns.n_violations == 0
+    fprintf('\n>>> CERTIFIED: the minimum-effort linear correction, applied to the true nonlinear\n');
+    fprintf('>>> AC model, restores 0.95 <= |V| <= 1.05 at every non-slack physical terminal.\n');
+else
+    fprintf('\n>>> NOT CERTIFIED: %d violations remain in the nonlinear AC model after applying\n', ...
+        corrected.rep_ac_ns.n_violations);
+    fprintf('>>> the linear-tangent-optimal correction -- linear feasibility does NOT guarantee\n');
+    fprintf('>>> nonlinear recoverability at this stress level. Remaining violated terminals:\n');
+    fprintf('    %s\n', strjoin(corrected.rep_ac_ns.violated_terminals, ', '));
+end
+
+save(fullfile('data', 'feasibility_results.mat'), 'feas', 'qp', 'A_loc', 'b_loc', 'lo', 'hi', ...
+    'corrected', 'p_corrected', 'q_corrected', '-v7');
+fprintf('\nSaved feasibility/min-effort/AC-validation results to data/feasibility_results.mat\n');
