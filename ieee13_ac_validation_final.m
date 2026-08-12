@@ -140,35 +140,45 @@ points(end+1) = struct('label', 'constrained vGNE', 'shortname', 'vGNE', ...
     'max_local_util', 0.929335));
 
 % ---- POINT B: selected compromise (alpha = 0.075) ------------------------
-% BLOCKED: the exact stored x vector must come from
-%   results/ieee13_constrained_game/selection_20260812_205251/
-% in the Julia-side repository. That directory was searched for across
-% StephanieMattaB/ETH_Manifold_1ACPF and every branch of
-% StephanieMattaB/DyNECT-thesis and was NOT found (see chat for the search
-% log) -- it appears to exist only on the machine where the final Julia
-% selection run was executed, not yet pushed anywhere this session can
-% reach. Per instructions, this x is NOT reconstructed from the printed
-% alpha/costs. Left as a placeholder -- fill in verbatim once supplied.
-%
-% mB = containers.Map();
-% mB('p645b') = ...; ...
-% points(end+1) = struct('label', 'selected compromise', 'shortname', 'compromise', ...
-%     'x_map', mB, 'julia', struct('E2', NaN, 'Vmin_lin', NaN, 'Vmax_lin', NaN, ...
-%     'viol_lin', 0, 'binding_rows', [], 'max_local_util', 0.960466));
+% Source: results/ieee13_constrained_game/selection_20260812_205251/
+%         selected_equilibria_full.jls, field obj.compromise.x (Julia
+%         Serialization.deserialize), read and reported verbatim -- NOT
+%         reconstructed from alpha/printed costs. Provenance cross-checked
+%         against alpha=0.075, region_id=1, excess_effort=0.1298%,
+%         reference_burden_relief=7.3207%, max_local_utilization=0.960466,
+%         shared_feasible=true, local_feasible=true (all match the task spec).
+mB = containers.Map();
+mB('p645b') =  1.0037729157e-03;  mB('p645c') = -6.5312771706e-04;
+mB('q645b') =  5.2556971262e-03;  mB('q645c') = -1.2845270832e-02;
+mB('p611c') = -1.6500943409e-03;  mB('q611c') = -2.6811910877e-02;
+mB('p652a') = -1.7447459733e-02;  mB('q652a') = -1.8560431509e-02;
+mB('p671a') = -1.6277594987e-02;  mB('p671b') =  1.4879060343e-03;  mB('p671c') = -1.5472663273e-03;
+mB('q671a') = -1.6822002252e-02;  mB('q671b') =  9.3462101463e-03;  mB('q671c') = -2.4906893342e-02;
+
+points(end+1) = struct('label', 'selected compromise', 'shortname', 'compromise', ...
+    'x_map', mB, 'julia', struct('E2', NaN, 'Vmin_lin', NaN, 'Vmax_lin', NaN, ...
+    'viol_lin', 0, 'binding_rows', [], 'max_local_util', 0.960466));
 
 % ---- POINT C: high-relief selected point (alpha ~= 1) ---------------------
-% BLOCKED for the same reason as POINT B -- see note above.
-%
-% mC = containers.Map();
-% ...
-% points(end+1) = struct(...);
+% Source: same file, field obj.burden_endpoint.x. Provenance cross-checked
+% against alpha=1.0, region_id=1, excess_effort=0.6395%,
+% reference_burden_relief=15.5987%, max_local_utilization=0.988254,
+% shared_feasible=true, local_feasible=true (all match the task spec).
+mC = containers.Map();
+mC('p645b') =  9.5246670559e-04;  mC('p645c') = -5.5911690717e-04;
+mC('q645b') =  5.5160292277e-03;  mC('q645c') = -1.3214051860e-02;
+mC('p611c') = -1.4532564596e-03;  mC('q611c') = -2.7587610719e-02;
+mC('p652a') = -1.8251830033e-02;  mC('q652a') = -1.9721334832e-02;
+mC('p671a') = -1.5464832034e-02;  mC('p671b') =  1.5610361084e-03;  mC('p671c') = -1.6824530526e-03;
+mC('q671a') = -1.5747059657e-02;  mC('q671b') =  8.8479793978e-03;  mC('q671c') = -2.4020896386e-02;
+
+points(end+1) = struct('label', 'high-relief selected point', 'shortname', 'high_relief', ...
+    'x_map', mC, 'julia', struct('E2', NaN, 'Vmin_lin', NaN, 'Vmax_lin', NaN, ...
+    'viol_lin', 0, 'binding_rows', [], 'max_local_util', 0.988254));
 
 if numel(points) < 3
     warning('ieee13_ac_validation_final:missingPoints', ...
-        ['Only %d/3 final equilibrium points are populated (POINT A only). ' ...
-         'POINTS B/C require the exact stored x vector from the Julia selection ' ...
-         'output, which was not found in any repository accessible to this session. ' ...
-         'Proceeding with the available point(s) only -- see the header comment.'], numel(points));
+        'Only %d/3 final equilibrium points are populated.', numel(points));
 end
 
 %% ------------------------------------------------------------------------
