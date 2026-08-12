@@ -1,0 +1,3 @@
+case,PF_conv,Vmin_lin,Vmin_AC,Vmax_lin,Vmax_AC,viol_lin,viol_AC,max_abs_err,rms_err
+S'' stressed (tangent anchor == AC, by construction),v_lin = DSO tangent @ S'' AC point; v_AC = nonlinear AC replay,0.9050735927,0.9050735927,1.060674505,1.060674505,18,18,0,0
+constrained vGNE,v_lin = DSO tangent @ S'' AC point; v_AC = nonlinear AC replay,0.9499999946,0.9486372938,1.022081845,1.022130398,2,2,0.001508881485,0.0009103061118
