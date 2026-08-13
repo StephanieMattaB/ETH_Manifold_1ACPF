@@ -306,20 +306,20 @@ for b = 2:n
     end
 end
 
-%% 7. Save
-
-if ~exist('figures','dir'); mkdir('figures'); end
-set(fig, 'PaperPositionMode', 'auto');
-paper_w = P.fig_size_px(1)/P.paper_px_per_in;
-paper_h = P.fig_size_px(2)/P.paper_px_per_in;
-set(fig, 'PaperUnits', 'inches', 'PaperSize', [paper_w paper_h], 'PaperPosition', [0 0 paper_w paper_h]);
-print(fig, fullfile('figures','fig_voltage_topology_S_Sp_Spp.png'), '-dpng', sprintf('-r%d', P.png_dpi));
-print(fig, fullfile('figures','fig_voltage_topology_S_Sp_Spp.pdf'), '-dpdf');
-fprintf('Saved figures/fig_voltage_topology_S_Sp_Spp.png and .pdf\n');
-
-if ~exist('data','dir'); mkdir('data'); end
-save(fullfile('data','voltage_topology_figure_data.mat'), ...
-    'x_slots','slot_bus','slot_phase','slot_full_idx','bus_group_start','bus_group_end', ...
-    'v_S','v_Sp','v_Spp','viol_S_lo','viol_S_hi','viol_Sp_lo','viol_Sp_hi','viol_Spp_lo','viol_Spp_hi', ...
-    'D','x_bus','y_bus','bus_labels','-v7');
-fprintf('Saved data/voltage_topology_figure_data.mat\n');
+% %% 7. Save
+% 
+% if ~exist('figures','dir'); mkdir('figures'); end
+% set(fig, 'PaperPositionMode', 'auto');
+% paper_w = P.fig_size_px(1)/P.paper_px_per_in;
+% paper_h = P.fig_size_px(2)/P.paper_px_per_in;
+% set(fig, 'PaperUnits', 'inches', 'PaperSize', [paper_w paper_h], 'PaperPosition', [0 0 paper_w paper_h]);
+% print(fig, fullfile('figures','fig_voltage_topology_S_Sp_Spp.png'), '-dpng', sprintf('-r%d', P.png_dpi));
+% print(fig, fullfile('figures','fig_voltage_topology_S_Sp_Spp.pdf'), '-dpdf');
+% fprintf('Saved figures/fig_voltage_topology_S_Sp_Spp.png and .pdf\n');
+% 
+% if ~exist('data','dir'); mkdir('data'); end
+% save(fullfile('data','voltage_topology_figure_data.mat'), ...
+%     'x_slots','slot_bus','slot_phase','slot_full_idx','bus_group_start','bus_group_end', ...
+%     'v_S','v_Sp','v_Spp','viol_S_lo','viol_S_hi','viol_Sp_lo','viol_Sp_hi','viol_Spp_lo','viol_Spp_hi', ...
+%     'D','x_bus','y_bus','bus_labels','-v7');
+% fprintf('Saved data/voltage_topology_figure_data.mat\n');
